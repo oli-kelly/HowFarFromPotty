@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How Far From Potty</title>
+    <meta
+      name="description"
+      content="Find out how far you are from the nearest public toilet in the UK or US."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero">
+        <p class="eyebrow">UK + US</p>
+        <h1>How Far From Potty?</h1>
+        <p class="lead">
+          Share your location to see the nearest public toilets in the UK or US, with distance and key access details.
+        </p>
+        <button id="locate-button" type="button">Use My Current Location</button>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Nearest Toilets</h2>
+        <p id="current-location" class="location-line"></p>
+        <ul id="results" class="results" aria-live="polite"></ul>
+      </section>
+
+      <section class="panel map-panel">
+        <h2>Map View</h2>
+        <p class="location-line">Your location and closest toilets are plotted below.</p>
+        <div id="toilet-map" class="map" aria-label="Map showing nearest public toilets"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Data sources:
+        <a href="https://www.toiletmap.org.uk/dataset" target="_blank" rel="noopener noreferrer">
+          The Great British Public Toilet Map (UK)
+        </a>
+        and
+        <a href="https://www.refugerestrooms.org/api/docs/" target="_blank" rel="noopener noreferrer">
+          Refuge Restrooms API (US)
+        </a>
+      </p>
+    </footer>
+
+    <script src="./vendor/leaflet/leaflet.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

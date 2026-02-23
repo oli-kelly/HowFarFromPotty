@@ -1,0 +1,15 @@
+{
+  "name": "how-far-from-potty",
+  "version": "1.0.0",
+  "description": "Find the nearest public toilet in the UK using your current location.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "keywords": [
+    "uk",
+    "toilet",
+    "geolocation"
+  ],
+  "license": "MIT"
+}
