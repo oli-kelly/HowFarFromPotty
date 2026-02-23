@@ -11,5 +11,8 @@
     "toilet",
     "geolocation"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "nodemailer": "^8.0.1"
+  }
 }

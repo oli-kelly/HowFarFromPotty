@@ -64,7 +64,14 @@ h1 {
   max-width: 34ch;
 }
 
-#locate-button {
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+#locate-button,
+#feature-submit {
   appearance: none;
   border: none;
   border-radius: 999px;
@@ -77,14 +84,34 @@ h1 {
   transition: transform 140ms ease, filter 140ms ease;
 }
 
-#locate-button:hover {
+#locate-button:hover,
+#feature-submit:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
 }
 
-#locate-button:disabled {
+#locate-button:disabled,
+#feature-submit:disabled {
   cursor: progress;
   filter: grayscale(0.2);
+}
+
+.ghost-button {
+  appearance: none;
+  border-radius: 999px;
+  padding: 11px 17px;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.ghost-button:hover {
+  transform: translateY(-1px);
+  border-color: #7ac8aa;
 }
 
 .status {
@@ -177,6 +204,98 @@ h2 {
 
 .footer a {
   color: #0a5f95;
+}
+
+.feature-dialog {
+  width: min(560px, 92vw);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0;
+  box-shadow: 0 24px 48px rgba(16, 34, 25, 0.28);
+}
+
+.feature-dialog::backdrop {
+  background: rgba(9, 19, 13, 0.45);
+}
+
+.feature-form {
+  display: grid;
+  gap: 10px;
+  padding: 22px;
+}
+
+.feature-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.feature-header h2 {
+  margin: 0;
+}
+
+.feature-help {
+  margin: 0 0 4px;
+  color: var(--muted);
+}
+
+.feature-form label {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.feature-form input,
+.feature-form textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+}
+
+.feature-form textarea {
+  resize: vertical;
+}
+
+.feature-form input:focus,
+.feature-form textarea:focus {
+  outline: 2px solid rgba(13, 139, 99, 0.28);
+  border-color: #7ac8aa;
+}
+
+.feature-status {
+  margin: 2px 0;
+  min-height: 1.2em;
+  color: var(--muted);
+}
+
+.feature-status.error {
+  color: #b21818;
+}
+
+.feature-status.success {
+  color: #0d8b63;
+}
+
+.feature-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.dialog-close {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
 }
 
 .map-panel {

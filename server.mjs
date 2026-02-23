@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import nodemailer from "nodemailer";
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = fileURLToPath(new URL(".", import.meta.url));
@@ -10,6 +11,7 @@ const DATASET_LINK_REGEX = /https:\/\/[^"'<>]+\/exports\/toilets-[^"'<>]+\.json\
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const US_API_BASE_URL = "https://www.refugerestrooms.org/api/v1";
 const US_SOURCE_DOCS_URL = "https://www.refugerestrooms.org/api/docs/#!/restrooms/get_api_v1_restrooms_by_location";
+const FEATURE_REQUEST_TO = process.env.FEATURE_REQUEST_TO || "oliverkellymain@gmail.com";
 
 const UK_BOUNDS = {
   minLat: 49.8,
@@ -97,6 +99,137 @@ function sendJson(res, statusCode, body) {
     "Content-Type": contentTypes[".json"]
   });
   res.end(JSON.stringify(body));
+}
+
+function getBooleanFromEnv(value, fallback = false) {
+  if (value == null) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const secure = getBooleanFromEnv(process.env.SMTP_SECURE, false);
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+
+  const enabled =
+    typeof host === "string" &&
+    host.length > 0 &&
+    Number.isFinite(port) &&
+    port > 0 &&
+    typeof user === "string" &&
+    user.length > 0 &&
+    typeof pass === "string" &&
+    pass.length > 0 &&
+    typeof from === "string" &&
+    from.length > 0;
+
+  return {
+    enabled,
+    host,
+    port,
+    secure,
+    user,
+    pass,
+    from
+  };
+}
+
+function sanitizeFeatureInput(value, maxLen) {
+  const text = clampText(value, maxLen);
+  return text ? text : "";
+}
+
+function buildFeatureRequestMailto({ name, email, subject, message }) {
+  const bodyLines = [
+    `Name: ${name || "Not provided"}`,
+    `Email: ${email || "Not provided"}`,
+    "",
+    message
+  ];
+
+  return `mailto:${encodeURIComponent(FEATURE_REQUEST_TO)}?subject=${encodeURIComponent(
+    subject
+  )}&body=${encodeURIComponent(bodyLines.join("\n"))}`;
+}
+
+function readJsonBody(req, maxBytes = 1_000_000) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytes = 0;
+
+    req.on("data", (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        reject(new Error("payload_too_large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8").trim();
+        if (!raw) {
+          resolve({});
+          return;
+        }
+        resolve(JSON.parse(raw));
+      } catch {
+        reject(new Error("invalid_json"));
+      }
+    });
+
+    req.on("error", () => reject(new Error("request_stream_error")));
+  });
+}
+
+async function sendFeatureRequestEmail({ name, email, subject, message }) {
+  const smtp = getSmtpConfig();
+  if (!smtp.enabled) {
+    throw new Error("smtp_not_configured");
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: {
+      user: smtp.user,
+      pass: smtp.pass
+    }
+  });
+
+  const lines = [
+    "New feature request for How Far From Potty",
+    "",
+    `Name: ${name || "Not provided"}`,
+    `Email: ${email || "Not provided"}`,
+    "",
+    "Request:",
+    message
+  ];
+
+  await transporter.sendMail({
+    from: smtp.from,
+    to: FEATURE_REQUEST_TO,
+    replyTo: email || undefined,
+    subject: `[Feature Request] ${subject}`,
+    text: lines.join("\n")
+  });
 }
 
 function parseToilets(rows) {
@@ -279,6 +412,78 @@ const server = createServer(async (req, res) => {
   try {
     const base = `http://${req.headers.host || "localhost"}`;
     const url = new URL(req.url || "/", base);
+
+    if (url.pathname === "/api/feature-request") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, {
+          error: "method_not_allowed",
+          message: "Use POST for feature requests."
+        });
+        return;
+      }
+
+      let requestBody;
+      try {
+        requestBody = await readJsonBody(req);
+      } catch (error) {
+        if (error.message === "payload_too_large") {
+          sendJson(res, 413, {
+            error: "payload_too_large",
+            message: "Feature request payload is too large."
+          });
+          return;
+        }
+
+        sendJson(res, 400, {
+          error: "invalid_payload",
+          message: "Send a valid JSON body."
+        });
+        return;
+      }
+
+      const featureRequest = {
+        name: sanitizeFeatureInput(requestBody?.name, 80),
+        email: sanitizeFeatureInput(requestBody?.email, 120),
+        subject: sanitizeFeatureInput(requestBody?.subject, 120),
+        message: sanitizeFeatureInput(requestBody?.message, 3000)
+      };
+
+      if (!featureRequest.subject || !featureRequest.message) {
+        sendJson(res, 400, {
+          error: "missing_fields",
+          message: "Both subject and message are required."
+        });
+        return;
+      }
+
+      const fallbackMailto = buildFeatureRequestMailto(featureRequest);
+      try {
+        await sendFeatureRequestEmail(featureRequest);
+        sendJson(res, 200, {
+          ok: true,
+          message: "Feature request sent.",
+          to: FEATURE_REQUEST_TO
+        });
+        return;
+      } catch (error) {
+        if (error.message === "smtp_not_configured") {
+          sendJson(res, 503, {
+            error: "smtp_not_configured",
+            message:
+              "Email sending is not configured on this server yet. Opening your email app instead.",
+            fallbackMailto
+          });
+          return;
+        }
+
+        sendJson(res, 502, {
+          error: "email_send_failed",
+          message: "Could not send email from server. Opening your email app instead.",
+          fallbackMailto
+        });
+        return;
+      }
+    }
 
     if (url.pathname === "/api/nearest") {
       const lat = Number(url.searchParams.get("lat"));

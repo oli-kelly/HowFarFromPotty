@@ -25,7 +25,10 @@
         <p class="lead">
           Share your location to see the nearest public toilets in the UK or US, with distance and key access details.
         </p>
-        <button id="locate-button" type="button">Use My Current Location</button>
+        <div class="hero-actions">
+          <button id="locate-button" type="button">Use My Current Location</button>
+          <button id="feature-request-button" type="button" class="ghost-button">Feature Request</button>
+        </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
       </section>
 
@@ -41,6 +44,53 @@
         <div id="toilet-map" class="map" aria-label="Map showing nearest public toilets"></div>
       </section>
     </main>
+
+    <dialog id="feature-request-dialog" class="feature-dialog">
+      <form id="feature-request-form" class="feature-form" method="dialog">
+        <div class="feature-header">
+          <h2>Feature Request</h2>
+          <button type="button" id="close-feature-request" class="dialog-close" aria-label="Close">
+            x
+          </button>
+        </div>
+        <p class="feature-help">
+          Send ideas directly to oliverkellymain@gmail.com.
+        </p>
+
+        <label for="feature-name">Name</label>
+        <input id="feature-name" name="name" type="text" maxlength="80" autocomplete="name" />
+
+        <label for="feature-email">Email (optional)</label>
+        <input id="feature-email" name="email" type="email" maxlength="120" autocomplete="email" />
+
+        <label for="feature-subject">Subject</label>
+        <input
+          id="feature-subject"
+          name="subject"
+          type="text"
+          maxlength="120"
+          required
+          value="Feature request for How Far From Potty"
+        />
+
+        <label for="feature-message">Request</label>
+        <textarea
+          id="feature-message"
+          name="message"
+          rows="6"
+          maxlength="3000"
+          required
+          placeholder="What feature should we add?"
+        ></textarea>
+
+        <p id="feature-request-status" class="feature-status" role="status" aria-live="polite"></p>
+
+        <div class="feature-actions">
+          <button type="submit" id="feature-submit">Send request</button>
+          <button type="button" id="feature-cancel" class="ghost-button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <footer class="footer">
       <p>

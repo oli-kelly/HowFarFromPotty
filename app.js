@@ -3,6 +3,13 @@ const statusLine = document.querySelector("#status");
 const currentLocationLine = document.querySelector("#current-location");
 const resultsList = document.querySelector("#results");
 const mapElement = document.querySelector("#toilet-map");
+const featureRequestButton = document.querySelector("#feature-request-button");
+const featureRequestDialog = document.querySelector("#feature-request-dialog");
+const featureRequestForm = document.querySelector("#feature-request-form");
+const featureRequestStatus = document.querySelector("#feature-request-status");
+const featureRequestSubmit = document.querySelector("#feature-submit");
+const closeFeatureRequestButton = document.querySelector("#close-feature-request");
+const cancelFeatureRequestButton = document.querySelector("#feature-cancel");
 
 let map;
 let tileLayer;
@@ -41,6 +48,105 @@ function initMap() {
 
 function setStatus(message) {
   statusLine.textContent = message;
+}
+
+function setFeatureRequestStatus(message, type = "default") {
+  if (!featureRequestStatus) {
+    return;
+  }
+
+  featureRequestStatus.textContent = message;
+  featureRequestStatus.classList.remove("error", "success");
+
+  if (type === "error") {
+    featureRequestStatus.classList.add("error");
+  }
+
+  if (type === "success") {
+    featureRequestStatus.classList.add("success");
+  }
+}
+
+function openFeatureRequestDialog() {
+  if (!featureRequestDialog) {
+    return;
+  }
+
+  if (typeof featureRequestDialog.showModal === "function") {
+    featureRequestDialog.showModal();
+  } else {
+    featureRequestDialog.setAttribute("open", "open");
+  }
+
+  setFeatureRequestStatus("");
+}
+
+function closeFeatureRequestDialog() {
+  if (!featureRequestDialog) {
+    return;
+  }
+
+  if (typeof featureRequestDialog.close === "function") {
+    featureRequestDialog.close();
+  } else {
+    featureRequestDialog.removeAttribute("open");
+  }
+}
+
+async function submitFeatureRequest(event) {
+  event.preventDefault();
+  if (!featureRequestForm || !featureRequestSubmit) {
+    return;
+  }
+
+  const formData = new FormData(featureRequestForm);
+  const payload = {
+    name: String(formData.get("name") || "").trim(),
+    email: String(formData.get("email") || "").trim(),
+    subject: String(formData.get("subject") || "").trim(),
+    message: String(formData.get("message") || "").trim()
+  };
+
+  if (!payload.subject || !payload.message) {
+    setFeatureRequestStatus("Subject and request are required.", "error");
+    return;
+  }
+
+  featureRequestSubmit.disabled = true;
+  setFeatureRequestStatus("Sending feature request...");
+
+  try {
+    const response = await fetch("/api/feature-request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const responseBody = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (responseBody.fallbackMailto) {
+        setFeatureRequestStatus("Opening your email app to send this request...", "success");
+        window.location.href = responseBody.fallbackMailto;
+        return;
+      }
+
+      throw new Error(responseBody.message || "Unable to send feature request.");
+    }
+
+    setFeatureRequestStatus("Feature request sent.", "success");
+    featureRequestForm.reset();
+    const subjectInput = featureRequestForm.querySelector("#feature-subject");
+    if (subjectInput) {
+      subjectInput.value = "Feature request for How Far From Potty";
+    }
+    setTimeout(() => closeFeatureRequestDialog(), 650);
+  } catch (error) {
+    setFeatureRequestStatus(error.message || "Unable to send feature request.", "error");
+  } finally {
+    featureRequestSubmit.disabled = false;
+  }
 }
 
 function clearHoverPath() {
@@ -319,3 +425,16 @@ window.addEventListener("resize", () => {
   }
 });
 locateButton.addEventListener("click", findNearestToilets);
+
+if (featureRequestButton && featureRequestDialog && featureRequestForm) {
+  featureRequestButton.addEventListener("click", openFeatureRequestDialog);
+  featureRequestForm.addEventListener("submit", submitFeatureRequest);
+  closeFeatureRequestButton?.addEventListener("click", closeFeatureRequestDialog);
+  cancelFeatureRequestButton?.addEventListener("click", closeFeatureRequestDialog);
+
+  featureRequestDialog.addEventListener("click", (event) => {
+    if (event.target === featureRequestDialog) {
+      closeFeatureRequestDialog();
+    }
+  });
+}
