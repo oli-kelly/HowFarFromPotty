@@ -132,7 +132,7 @@ async function submitFeatureRequest(event) {
 
     const responseBody = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (responseBody?.error === "smtp_not_configured" || responseBody?.error === "email_not_configured") {
+      if (responseBody?.error === "email_not_configured") {
         const missing = Array.isArray(responseBody.missing) ? responseBody.missing.join(", ") : "";
         const hint = missing ? ` Missing: ${missing}.` : "";
         throw new Error(`Server email is not configured.${hint}`);
