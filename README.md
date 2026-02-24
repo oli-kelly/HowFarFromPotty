@@ -16,6 +16,8 @@ npm start
 
 Then open `http://localhost:3000`.
 
+Create a `.env` file first (copy from `.env.example`) if you want feature-request emails to work locally.
+
 ## Notes
 
 - The browser requests geolocation permission from the user.
@@ -28,7 +30,8 @@ Then open `http://localhost:3000`.
 
 - The app includes a `Feature Request` button that opens an in-app form.
 - Requests are sent to `oliverkellymain@gmail.com`.
-- To send directly from the server, configure SMTP environment variables:
+- Requests are sent directly from the server (no client email login required).
+- Configure SMTP environment variables:
   - `SMTP_HOST`
   - `SMTP_PORT` (default: `587`)
   - `SMTP_SECURE` (`true`/`false`, default: `false`)
@@ -36,4 +39,30 @@ Then open `http://localhost:3000`.
   - `SMTP_PASS`
   - `SMTP_FROM` (optional, defaults to `SMTP_USER`)
   - `FEATURE_REQUEST_TO` (optional override for recipient email)
-- If SMTP is not configured, the app falls back to opening the user's email client with a prefilled draft.
+
+### PowerShell example (local dev)
+
+```powershell
+$env:SMTP_HOST="smtp.gmail.com"
+$env:SMTP_PORT="587"
+$env:SMTP_SECURE="false"
+$env:SMTP_USER="your-account@gmail.com"
+$env:SMTP_PASS="your-app-password"
+$env:SMTP_FROM="HowFarFromPotty <your-account@gmail.com>"
+$env:FEATURE_REQUEST_TO="oliverkellymain@gmail.com"
+npm start
+```
+
+If SMTP is missing or invalid, `/api/feature-request` returns `503` and the form shows an error.
+
+### `.env` example (recommended)
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-account@gmail.com
+SMTP_PASS=your-app-password
+SMTP_FROM=HowFarFromPotty <your-account@gmail.com>
+FEATURE_REQUEST_TO=oliverkellymain@gmail.com
+```

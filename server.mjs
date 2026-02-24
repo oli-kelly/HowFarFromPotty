@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -124,20 +125,26 @@ function getSmtpConfig() {
   const secure = getBooleanFromEnv(process.env.SMTP_SECURE, false);
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 
-  const enabled =
-    typeof host === "string" &&
-    host.length > 0 &&
-    Number.isFinite(port) &&
-    port > 0 &&
-    typeof user === "string" &&
-    user.length > 0 &&
-    typeof pass === "string" &&
-    pass.length > 0 &&
-    typeof from === "string" &&
-    from.length > 0;
+  const missing = [];
+  if (!(typeof host === "string" && host.length > 0)) {
+    missing.push("SMTP_HOST");
+  }
+  if (!(Number.isFinite(port) && port > 0)) {
+    missing.push("SMTP_PORT");
+  }
+  if (!(typeof user === "string" && user.length > 0)) {
+    missing.push("SMTP_USER");
+  }
+  if (!(typeof pass === "string" && pass.length > 0)) {
+    missing.push("SMTP_PASS");
+  }
+  if (!(typeof from === "string" && from.length > 0)) {
+    missing.push("SMTP_FROM");
+  }
 
   return {
-    enabled,
+    enabled: missing.length === 0,
+    missing,
     host,
     port,
     secure,
@@ -150,19 +157,6 @@ function getSmtpConfig() {
 function sanitizeFeatureInput(value, maxLen) {
   const text = clampText(value, maxLen);
   return text ? text : "";
-}
-
-function buildFeatureRequestMailto({ name, email, subject, message }) {
-  const bodyLines = [
-    `Name: ${name || "Not provided"}`,
-    `Email: ${email || "Not provided"}`,
-    "",
-    message
-  ];
-
-  return `mailto:${encodeURIComponent(FEATURE_REQUEST_TO)}?subject=${encodeURIComponent(
-    subject
-  )}&body=${encodeURIComponent(bodyLines.join("\n"))}`;
 }
 
 function readJsonBody(req, maxBytes = 1_000_000) {
@@ -200,7 +194,9 @@ function readJsonBody(req, maxBytes = 1_000_000) {
 async function sendFeatureRequestEmail({ name, email, subject, message }) {
   const smtp = getSmtpConfig();
   if (!smtp.enabled) {
-    throw new Error("smtp_not_configured");
+    const error = new Error("smtp_not_configured");
+    error.missing = smtp.missing;
+    throw error;
   }
 
   const transporter = nodemailer.createTransport({
@@ -456,7 +452,6 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const fallbackMailto = buildFeatureRequestMailto(featureRequest);
       try {
         await sendFeatureRequestEmail(featureRequest);
         sendJson(res, 200, {
@@ -467,19 +462,21 @@ const server = createServer(async (req, res) => {
         return;
       } catch (error) {
         if (error.message === "smtp_not_configured") {
+          console.error(
+            `[feature-request] SMTP is not configured. Missing: ${(error.missing || []).join(", ")}`
+          );
           sendJson(res, 503, {
             error: "smtp_not_configured",
-            message:
-              "Email sending is not configured on this server yet. Opening your email app instead.",
-            fallbackMailto
+            message: "Feature request delivery is not configured on this server.",
+            missing: Array.isArray(error.missing) ? error.missing : []
           });
           return;
         }
 
+        console.error("[feature-request] Email send failed:", error);
         sendJson(res, 502, {
           error: "email_send_failed",
-          message: "Could not send email from server. Opening your email app instead.",
-          fallbackMailto
+          message: "Could not send feature request right now. Please try again."
         });
         return;
       }

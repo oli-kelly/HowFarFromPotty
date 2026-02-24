@@ -126,12 +126,11 @@ async function submitFeatureRequest(event) {
 
     const responseBody = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (responseBody.fallbackMailto) {
-        setFeatureRequestStatus("Opening your email app to send this request...", "success");
-        window.location.href = responseBody.fallbackMailto;
-        return;
+      if (responseBody?.error === "smtp_not_configured") {
+        const missing = Array.isArray(responseBody.missing) ? responseBody.missing.join(", ") : "";
+        const hint = missing ? ` Missing: ${missing}.` : "";
+        throw new Error(`Server email is not configured.${hint}`);
       }
-
       throw new Error(responseBody.message || "Unable to send feature request.");
     }
 
