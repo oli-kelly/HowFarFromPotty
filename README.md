@@ -39,6 +39,8 @@ Create a `.env` file first (copy from `.env.example`) if you want feature-reques
   - `SMTP_PASS`
   - `SMTP_FROM` (optional, defaults to `SMTP_USER`)
   - `FEATURE_REQUEST_TO` (optional override for recipient email)
+  - `SMTP_CONNECT_TIMEOUT_MS` (optional, default: `15000`)
+  - `SMTP_SEND_TIMEOUT_MS` (optional, default: `25000`)
 
 ### PowerShell example (local dev)
 

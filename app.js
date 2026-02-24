@@ -10,6 +10,7 @@ const featureRequestStatus = document.querySelector("#feature-request-status");
 const featureRequestSubmit = document.querySelector("#feature-submit");
 const closeFeatureRequestButton = document.querySelector("#close-feature-request");
 const cancelFeatureRequestButton = document.querySelector("#feature-cancel");
+const FEATURE_REQUEST_TIMEOUT_MS = 20000;
 
 let map;
 let tileLayer;
@@ -115,14 +116,19 @@ async function submitFeatureRequest(event) {
   featureRequestSubmit.disabled = true;
   setFeatureRequestStatus("Sending feature request...");
 
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), FEATURE_REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch("/api/feature-request", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+    clearTimeout(timeoutHandle);
 
     const responseBody = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -142,6 +148,14 @@ async function submitFeatureRequest(event) {
     }
     setTimeout(() => closeFeatureRequestDialog(), 650);
   } catch (error) {
+    clearTimeout(timeoutHandle);
+    if (error?.name === "AbortError") {
+      setFeatureRequestStatus(
+        "Feature request timed out. Please try again in a moment.",
+        "error"
+      );
+      return;
+    }
     setFeatureRequestStatus(error.message || "Unable to send feature request.", "error");
   } finally {
     featureRequestSubmit.disabled = false;

@@ -13,6 +13,8 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const US_API_BASE_URL = "https://www.refugerestrooms.org/api/v1";
 const US_SOURCE_DOCS_URL = "https://www.refugerestrooms.org/api/docs/#!/restrooms/get_api_v1_restrooms_by_location";
 const FEATURE_REQUEST_TO = process.env.FEATURE_REQUEST_TO || "oliverkellymain@gmail.com";
+const SMTP_CONNECT_TIMEOUT_MS = Number(process.env.SMTP_CONNECT_TIMEOUT_MS || 15000);
+const SMTP_SEND_TIMEOUT_MS = Number(process.env.SMTP_SEND_TIMEOUT_MS || 25000);
 
 const UK_BOUNDS = {
   minLat: 49.8,
@@ -203,6 +205,9 @@ async function sendFeatureRequestEmail({ name, email, subject, message }) {
     host: smtp.host,
     port: smtp.port,
     secure: smtp.secure,
+    connectionTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    greetingTimeout: SMTP_CONNECT_TIMEOUT_MS,
+    socketTimeout: SMTP_SEND_TIMEOUT_MS,
     auth: {
       user: smtp.user,
       pass: smtp.pass
@@ -219,13 +224,18 @@ async function sendFeatureRequestEmail({ name, email, subject, message }) {
     message
   ];
 
-  await transporter.sendMail({
-    from: smtp.from,
-    to: FEATURE_REQUEST_TO,
-    replyTo: email || undefined,
-    subject: `[Feature Request] ${subject}`,
-    text: lines.join("\n")
-  });
+  await Promise.race([
+    transporter.sendMail({
+      from: smtp.from,
+      to: FEATURE_REQUEST_TO,
+      replyTo: email || undefined,
+      subject: `[Feature Request] ${subject}`,
+      text: lines.join("\n")
+    }),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("smtp_send_timeout")), SMTP_SEND_TIMEOUT_MS);
+    })
+  ]);
 }
 
 function parseToilets(rows) {
@@ -469,6 +479,15 @@ const server = createServer(async (req, res) => {
             error: "smtp_not_configured",
             message: "Feature request delivery is not configured on this server.",
             missing: Array.isArray(error.missing) ? error.missing : []
+          });
+          return;
+        }
+
+        if (error.message === "smtp_send_timeout") {
+          console.error("[feature-request] SMTP send timed out");
+          sendJson(res, 504, {
+            error: "email_timeout",
+            message: "Email provider timed out. Please try again."
           });
           return;
         }
