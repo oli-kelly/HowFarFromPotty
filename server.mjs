@@ -161,6 +161,55 @@ function sanitizeFeatureInput(value, maxLen) {
   return text ? text : "";
 }
 
+function mapEmailSendError(error) {
+  const errorCode = typeof error?.code === "string" ? error.code : "UNKNOWN";
+  const responseCode = Number.isFinite(error?.responseCode) ? error.responseCode : null;
+
+  if (error?.message === "smtp_send_timeout" || errorCode === "ETIMEDOUT") {
+    return {
+      statusCode: 504,
+      body: {
+        error: "email_timeout",
+        message: "Email provider timed out. Please try again.",
+        providerCode: errorCode
+      }
+    };
+  }
+
+  if (errorCode === "EAUTH" || responseCode === 535) {
+    return {
+      statusCode: 502,
+      body: {
+        error: "email_auth_failed",
+        message: "SMTP authentication failed. Check SMTP_USER and SMTP_PASS.",
+        providerCode: errorCode
+      }
+    };
+  }
+
+  if (
+    ["ESOCKET", "ECONNECTION", "ENOTFOUND", "ECONNREFUSED", "EHOSTUNREACH"].includes(errorCode)
+  ) {
+    return {
+      statusCode: 502,
+      body: {
+        error: "email_connection_failed",
+        message: "Could not connect to the email provider. Check SMTP host/port or network egress rules.",
+        providerCode: errorCode
+      }
+    };
+  }
+
+  return {
+    statusCode: 502,
+    body: {
+      error: "email_send_failed",
+      message: "Could not send feature request right now. Please try again.",
+      providerCode: errorCode
+    }
+  };
+}
+
 function readJsonBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -483,20 +532,13 @@ const server = createServer(async (req, res) => {
           return;
         }
 
-        if (error.message === "smtp_send_timeout") {
-          console.error("[feature-request] SMTP send timed out");
-          sendJson(res, 504, {
-            error: "email_timeout",
-            message: "Email provider timed out. Please try again."
-          });
-          return;
-        }
-
-        console.error("[feature-request] Email send failed:", error);
-        sendJson(res, 502, {
-          error: "email_send_failed",
-          message: "Could not send feature request right now. Please try again."
+        const mappedError = mapEmailSendError(error);
+        console.error("[feature-request] Email send failed:", {
+          message: error?.message || "unknown_error",
+          code: error?.code || null,
+          responseCode: error?.responseCode || null
         });
+        sendJson(res, mappedError.statusCode, mappedError.body);
         return;
       }
     }

@@ -57,6 +57,13 @@ npm start
 
 If SMTP is missing or invalid, `/api/feature-request` returns `503` and the form shows an error.
 
+## Troubleshooting feature request send
+
+- `503 smtp_not_configured`: SMTP env vars are missing.
+- `502 email_auth_failed`: Gmail rejected login (`SMTP_USER` / `SMTP_PASS` mismatch).
+- `502 email_connection_failed`: host/port/network issue reaching SMTP.
+- `504 email_timeout`: SMTP connection/send timed out.
+
 ### `.env` example (recommended)
 
 ```env
