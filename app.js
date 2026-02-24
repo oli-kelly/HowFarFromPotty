@@ -10,7 +10,10 @@ const featureRequestStatus = document.querySelector("#feature-request-status");
 const featureRequestSubmit = document.querySelector("#feature-submit");
 const closeFeatureRequestButton = document.querySelector("#close-feature-request");
 const cancelFeatureRequestButton = document.querySelector("#feature-cancel");
+const unitKmButton = document.querySelector("#unit-km");
+const unitMiButton = document.querySelector("#unit-mi");
 const FEATURE_REQUEST_TIMEOUT_MS = 20000;
+const DISTANCE_UNIT_STORAGE_KEY = "distance-unit";
 
 let map;
 let tileLayer;
@@ -19,6 +22,8 @@ let userMarker;
 let hoverPath;
 let hoverDistanceMarker;
 let currentUserLocation;
+let lastToiletResults = [];
+let distanceUnit = "km";
 const toiletsById = new Map();
 const toiletMarkersById = new Map();
 
@@ -196,7 +201,63 @@ function clearResults() {
   resultsList.innerHTML = "";
 }
 
+function getStoredDistanceUnit() {
+  try {
+    const stored = window.localStorage.getItem(DISTANCE_UNIT_STORAGE_KEY);
+    return stored === "mi" ? "mi" : "km";
+  } catch {
+    return "km";
+  }
+}
+
+function updateDistanceUnitButtons() {
+  if (unitKmButton) {
+    unitKmButton.setAttribute("aria-pressed", distanceUnit === "km" ? "true" : "false");
+  }
+  if (unitMiButton) {
+    unitMiButton.setAttribute("aria-pressed", distanceUnit === "mi" ? "true" : "false");
+  }
+}
+
+function rerenderDistanceDependentUi() {
+  if (lastToiletResults.length > 0) {
+    resultsList.innerHTML = lastToiletResults.map(renderToilet).join("");
+    bindResultInteractions();
+  } else {
+    clearResults();
+  }
+
+  if (currentUserLocation) {
+    updateMap(currentUserLocation.lat, currentUserLocation.lon, lastToiletResults);
+  }
+}
+
+function setDistanceUnit(nextUnit, { persist = true, rerender = true } = {}) {
+  distanceUnit = nextUnit === "mi" ? "mi" : "km";
+  updateDistanceUnitButtons();
+
+  if (persist) {
+    try {
+      window.localStorage.setItem(DISTANCE_UNIT_STORAGE_KEY, distanceUnit);
+    } catch {
+      // Ignore storage failures (private mode or blocked storage).
+    }
+  }
+
+  if (rerender) {
+    rerenderDistanceDependentUi();
+  }
+}
+
 function formatDistance(km) {
+  if (distanceUnit === "mi") {
+    const miles = km * 0.621371;
+    if (miles < 0.1) {
+      return `${Math.round(miles * 5280)} ft`;
+    }
+    return `${miles.toFixed(2)} mi`;
+  }
+
   if (km < 1) {
     return `${Math.round(km * 1000)} m`;
   }
@@ -403,6 +464,7 @@ async function findNearestToilets() {
   setStatus("Requesting your location...");
   clearResults();
   currentLocationLine.textContent = "";
+  lastToiletResults = [];
 
   try {
     const position = await getCurrentPosition();
@@ -421,14 +483,16 @@ async function findNearestToilets() {
     }
 
     if (!payload.toilets.length) {
+      lastToiletResults = [];
       updateMap(latitude, longitude, []);
       setStatus(`No nearby toilets found from ${payload.source?.name || "the selected data source"}.`);
       return;
     }
 
-    resultsList.innerHTML = payload.toilets.map(renderToilet).join("");
+    lastToiletResults = payload.toilets;
+    resultsList.innerHTML = lastToiletResults.map(renderToilet).join("");
     bindResultInteractions();
-    updateMap(latitude, longitude, payload.toilets);
+    updateMap(latitude, longitude, lastToiletResults);
     setStatus(
       `Showing ${payload.toilets.length} closest toilets from ${payload.source?.name || "the data source"} (${payload.query?.region || "Auto"}).`
     );
@@ -451,6 +515,12 @@ window.addEventListener("resize", () => {
   }
 });
 locateButton.addEventListener("click", findNearestToilets);
+setDistanceUnit(getStoredDistanceUnit(), { persist: false, rerender: false });
+
+if (unitKmButton && unitMiButton) {
+  unitKmButton.addEventListener("click", () => setDistanceUnit("km"));
+  unitMiButton.addEventListener("click", () => setDistanceUnit("mi"));
+}
 
 if (featureRequestButton && featureRequestDialog && featureRequestForm) {
   featureRequestButton.addEventListener("click", openFeatureRequestDialog);
