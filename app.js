@@ -140,6 +140,19 @@ async function submitFeatureRequest(event) {
       throw new Error(responseBody.message || "Unable to send feature request.");
     }
 
+    if (responseBody?.warning) {
+      setFeatureRequestStatus(
+        responseBody.message || "Feature request email sent, but database save failed.",
+        "error"
+      );
+      featureRequestForm.reset();
+      const subjectInput = featureRequestForm.querySelector("#feature-subject");
+      if (subjectInput) {
+        subjectInput.value = "Feature request for How Far From Potty";
+      }
+      return;
+    }
+
     setFeatureRequestStatus("Feature request sent.", "success");
     featureRequestForm.reset();
     const subjectInput = featureRequestForm.querySelector("#feature-subject");

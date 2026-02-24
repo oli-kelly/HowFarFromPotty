@@ -14,6 +14,12 @@ const US_API_BASE_URL = "https://www.refugerestrooms.org/api/v1";
 const US_SOURCE_DOCS_URL = "https://www.refugerestrooms.org/api/docs/#!/restrooms/get_api_v1_restrooms_by_location";
 const FEATURE_REQUEST_TO = process.env.FEATURE_REQUEST_TO || "oliverkellymain@gmail.com";
 const RESEND_SEND_TIMEOUT_MS = Number(process.env.RESEND_SEND_TIMEOUT_MS || 20000);
+const SUPABASE_FEATURE_REQUESTS_URL =
+  process.env.SUPABASE_FEATURE_REQUESTS_URL ||
+  "https://lcdorgrifvgbmbwfdjut.supabase.co/rest/v1/feature_requests";
+const SUPABASE_PUBLISHABLE_KEY =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  "sb_publishable_tjz7milxhXfFZj15c7qs0g_nuz_jMhw";
 
 const UK_BOUNDS = {
   minLat: 49.8,
@@ -212,6 +218,65 @@ function mapEmailSendError(error) {
   };
 }
 
+function mapDatabaseWriteError(error) {
+  const errorCode = typeof error?.code === "string" ? error.code : "UNKNOWN";
+  const responseCode = Number.isFinite(error?.responseCode) ? error.responseCode : null;
+  const providerMessage = clampText(error?.providerMessage || error?.message || "", 220);
+
+  if (errorCode === "EDB_NOT_CONFIGURED") {
+    return {
+      error: "db_not_configured",
+      message: "Database logging is not configured on this server.",
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined,
+      missing: Array.isArray(error?.missing) ? error.missing : []
+    };
+  }
+
+  if (errorCode === "EDB_AUTH" || responseCode === 401 || responseCode === 403) {
+    return {
+      error: "db_auth_failed",
+      message: "Database write authentication failed. Check Supabase key permissions.",
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined
+    };
+  }
+
+  if (errorCode === "EDB_RATE_LIMIT" || responseCode === 429) {
+    return {
+      error: "db_rate_limited",
+      message: "Database write rate limited. Please try again shortly.",
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined
+    };
+  }
+
+  if (errorCode === "EDB_TIMEOUT" || errorCode === "ETIMEDOUT") {
+    return {
+      error: "db_timeout",
+      message: "Database write timed out.",
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined
+    };
+  }
+
+  if (["EDB_NETWORK", "ENOTFOUND", "ECONNREFUSED", "EHOSTUNREACH"].includes(errorCode)) {
+    return {
+      error: "db_connection_failed",
+      message: "Could not connect to the database endpoint.",
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined
+    };
+  }
+
+  return {
+    error: "db_write_failed",
+    message: "Could not save feature request to the database.",
+    providerCode: errorCode,
+    providerMessage: providerMessage || undefined
+  };
+}
+
 function readJsonBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -318,6 +383,74 @@ async function sendFeatureRequestEmail({ name, email, subject, message }) {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
+  }
+}
+
+async function saveFeatureRequestToDatabase({ name, message }) {
+  const key = typeof SUPABASE_PUBLISHABLE_KEY === "string" ? SUPABASE_PUBLISHABLE_KEY.trim() : "";
+  const endpoint =
+    typeof SUPABASE_FEATURE_REQUESTS_URL === "string" ? SUPABASE_FEATURE_REQUESTS_URL.trim() : "";
+
+  const missing = [];
+  if (!endpoint) {
+    missing.push("SUPABASE_FEATURE_REQUESTS_URL");
+  }
+  if (!key) {
+    missing.push("SUPABASE_PUBLISHABLE_KEY");
+  }
+
+  if (missing.length > 0) {
+    const error = new Error("db_not_configured");
+    error.code = "EDB_NOT_CONFIGURED";
+    error.missing = missing;
+    throw error;
+  }
+
+  const payload = {
+    user_idea: message,
+    submitter_name: name || "Anonymous"
+  };
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      let providerMessage = "";
+      try {
+        const asJson = await response.json();
+        providerMessage = asJson?.message || asJson?.error || "";
+      } catch {
+        providerMessage = await response.text();
+      }
+
+      const error = new Error("db_request_failed");
+      error.responseCode = response.status;
+      error.providerMessage = providerMessage;
+      if (response.status === 401 || response.status === 403) {
+        error.code = "EDB_AUTH";
+      } else if (response.status === 429) {
+        error.code = "EDB_RATE_LIMIT";
+      } else {
+        error.code = "EDB_REQUEST_FAILED";
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (!error?.code) {
+      const wrapped = new Error(error?.message || "db_network_error");
+      wrapped.code = "EDB_NETWORK";
+      throw wrapped;
+    }
+    throw error;
   }
 }
 
@@ -547,10 +680,25 @@ const server = createServer(async (req, res) => {
 
       try {
         await sendFeatureRequestEmail(featureRequest);
+        let warning = null;
+        try {
+          await saveFeatureRequestToDatabase(featureRequest);
+        } catch (dbError) {
+          warning = mapDatabaseWriteError(dbError);
+          console.error("[feature-request] DB save failed:", {
+            message: dbError?.message || "unknown_db_error",
+            code: dbError?.code || null,
+            responseCode: dbError?.responseCode || null
+          });
+        }
+
         sendJson(res, 200, {
           ok: true,
-          message: "Feature request sent.",
-          to: FEATURE_REQUEST_TO
+          message: warning
+            ? "Feature request email sent, but saving to database failed."
+            : "Feature request sent.",
+          to: FEATURE_REQUEST_TO,
+          warning
         });
         return;
       } catch (error) {

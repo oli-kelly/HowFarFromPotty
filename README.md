@@ -39,6 +39,8 @@ Create a `.env` file first (copy from `.env.example`) if you want feature-reques
 - `RESEND_FROM` (must be a verified sender/domain in Resend; `onboarding@resend.dev` works for testing)
 - `FEATURE_REQUEST_TO` (optional override for recipient email)
 - `RESEND_SEND_TIMEOUT_MS` (optional, default: `20000`)
+- `SUPABASE_FEATURE_REQUESTS_URL` (optional override; defaults to your `feature_requests` REST endpoint)
+- `SUPABASE_PUBLISHABLE_KEY` (publishable key used for REST insert)
 
 ### PowerShell example (Resend)
 
@@ -46,6 +48,8 @@ Create a `.env` file first (copy from `.env.example`) if you want feature-reques
 $env:RESEND_API_KEY="re_xxxxxxxxxxxxxxxxx"
 $env:RESEND_FROM="HowFarFromPotty <onboarding@resend.dev>"
 $env:FEATURE_REQUEST_TO="oliverkellymain@gmail.com"
+$env:SUPABASE_FEATURE_REQUESTS_URL="https://lcdorgrifvgbmbwfdjut.supabase.co/rest/v1/feature_requests"
+$env:SUPABASE_PUBLISHABLE_KEY="sb_publishable_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 npm start
 ```
 
@@ -58,6 +62,7 @@ If Resend is missing/invalid, `/api/feature-request` returns `503` and the form 
 - `403 email_sender_not_allowed`: `RESEND_FROM` sender/domain or recipient is not allowed in current Resend mode.
 - `502 email_connection_failed`: host/port/network issue reaching provider.
 - `504 email_timeout`: provider connection/send timed out.
+- `ok: true` with `warning`: email sent, but database save failed.
 
 ### `.env` example (recommended)
 
@@ -65,4 +70,6 @@ If Resend is missing/invalid, `/api/feature-request` returns `503` and the form 
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx
 RESEND_FROM=HowFarFromPotty <onboarding@resend.dev>
 FEATURE_REQUEST_TO=oliverkellymain@gmail.com
+SUPABASE_FEATURE_REQUESTS_URL=https://lcdorgrifvgbmbwfdjut.supabase.co/rest/v1/feature_requests
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
