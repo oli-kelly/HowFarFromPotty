@@ -55,6 +55,7 @@ If Resend is missing/invalid, `/api/feature-request` returns `503` and the form 
 
 - `503 email_not_configured`: Resend env vars are missing.
 - `502 email_auth_failed`: Resend authentication failed (`RESEND_API_KEY` invalid/revoked).
+- `403 email_sender_not_allowed`: `RESEND_FROM` sender/domain or recipient is not allowed in current Resend mode.
 - `502 email_connection_failed`: host/port/network issue reaching provider.
 - `504 email_timeout`: provider connection/send timed out.
 

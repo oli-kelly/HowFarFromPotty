@@ -104,8 +104,8 @@ function sendJson(res, statusCode, body) {
 }
 
 function getResendConfig() {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
+  const apiKey = typeof process.env.RESEND_API_KEY === "string" ? process.env.RESEND_API_KEY.trim() : "";
+  const from = typeof process.env.RESEND_FROM === "string" ? process.env.RESEND_FROM.trim() : "";
 
   const missing = [];
   if (!(typeof apiKey === "string" && apiKey.length > 0)) {
@@ -131,6 +131,7 @@ function sanitizeFeatureInput(value, maxLen) {
 function mapEmailSendError(error) {
   const errorCode = typeof error?.code === "string" ? error.code : "UNKNOWN";
   const responseCode = Number.isFinite(error?.responseCode) ? error.responseCode : null;
+  const providerMessage = clampText(error?.providerMessage || error?.message || "", 220);
 
   if (errorCode === "ETIMEDOUT" || errorCode === "ERESEND_TIMEOUT") {
     return {
@@ -143,13 +144,26 @@ function mapEmailSendError(error) {
     };
   }
 
-  if (errorCode === "ERESEND_AUTH" || responseCode === 401 || responseCode === 403) {
+  if (errorCode === "ERESEND_AUTH" || responseCode === 401) {
     return {
       statusCode: 502,
       body: {
         error: "email_auth_failed",
         message: "Resend authentication failed. Check RESEND_API_KEY.",
-        providerCode: errorCode
+        providerCode: errorCode,
+        providerMessage: providerMessage || undefined
+      }
+    };
+  }
+
+  if (errorCode === "ERESEND_FORBIDDEN" || responseCode === 403) {
+    return {
+      statusCode: 403,
+      body: {
+        error: "email_sender_not_allowed",
+        message: "Resend rejected this sender or recipient. Verify RESEND_FROM/domain and testing restrictions.",
+        providerCode: errorCode,
+        providerMessage: providerMessage || undefined
       }
     };
   }
@@ -160,7 +174,8 @@ function mapEmailSendError(error) {
       body: {
         error: "email_rate_limited",
         message: "Email provider rate limit reached. Please try again shortly.",
-        providerCode: errorCode
+        providerCode: errorCode,
+        providerMessage: providerMessage || undefined
       }
     };
   }
@@ -180,7 +195,8 @@ function mapEmailSendError(error) {
       body: {
         error: "email_connection_failed",
         message: "Could not connect to the email provider. Check provider config and network egress rules.",
-        providerCode: errorCode
+        providerCode: errorCode,
+        providerMessage: providerMessage || undefined
       }
     };
   }
@@ -190,7 +206,8 @@ function mapEmailSendError(error) {
     body: {
       error: "email_send_failed",
       message: "Could not send feature request right now. Please try again.",
-      providerCode: errorCode
+      providerCode: errorCode,
+      providerMessage: providerMessage || undefined
     }
   };
 }
@@ -268,8 +285,9 @@ async function sendFeatureRequestEmail({ name, email, subject, message }) {
     if (response?.error) {
       const error = new Error("resend_request_failed");
       error.responseCode = Number(response.error.statusCode) || null;
+      error.providerMessage = response.error.message || "";
       if (error.responseCode === 401 || error.responseCode === 403) {
-        error.code = "ERESEND_AUTH";
+        error.code = error.responseCode === 403 ? "ERESEND_FORBIDDEN" : "ERESEND_AUTH";
       } else if (error.responseCode === 429) {
         error.code = "ERESEND_RATE_LIMIT";
       } else {
@@ -284,7 +302,7 @@ async function sendFeatureRequestEmail({ name, email, subject, message }) {
     }
 
     if ((error?.responseCode === 401 || error?.responseCode === 403) && !error?.code) {
-      error.code = "ERESEND_AUTH";
+      error.code = error.responseCode === 403 ? "ERESEND_FORBIDDEN" : "ERESEND_AUTH";
     } else if (error?.responseCode === 429 && !error?.code) {
       error.code = "ERESEND_RATE_LIMIT";
     }
