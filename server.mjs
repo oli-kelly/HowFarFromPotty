@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = fileURLToPath(new URL(".", import.meta.url));
@@ -13,6 +14,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const US_API_BASE_URL = "https://www.refugerestrooms.org/api/v1";
 const US_SOURCE_DOCS_URL = "https://www.refugerestrooms.org/api/docs/#!/restrooms/get_api_v1_restrooms_by_location";
 const FEATURE_REQUEST_TO = process.env.FEATURE_REQUEST_TO || "oliverkellymain@gmail.com";
+const RESEND_SEND_TIMEOUT_MS = Number(process.env.RESEND_SEND_TIMEOUT_MS || 20000);
 const SMTP_CONNECT_TIMEOUT_MS = Number(process.env.SMTP_CONNECT_TIMEOUT_MS || 15000);
 const SMTP_SEND_TIMEOUT_MS = Number(process.env.SMTP_SEND_TIMEOUT_MS || 25000);
 
@@ -156,6 +158,26 @@ function getSmtpConfig() {
   };
 }
 
+function getResendConfig() {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
+
+  const missing = [];
+  if (!(typeof apiKey === "string" && apiKey.length > 0)) {
+    missing.push("RESEND_API_KEY");
+  }
+  if (!(typeof from === "string" && from.length > 0)) {
+    missing.push("RESEND_FROM");
+  }
+
+  return {
+    enabled: missing.length === 0,
+    missing,
+    apiKey,
+    from
+  };
+}
+
 function sanitizeFeatureInput(value, maxLen) {
   const text = clampText(value, maxLen);
   return text ? text : "";
@@ -165,7 +187,11 @@ function mapEmailSendError(error) {
   const errorCode = typeof error?.code === "string" ? error.code : "UNKNOWN";
   const responseCode = Number.isFinite(error?.responseCode) ? error.responseCode : null;
 
-  if (error?.message === "smtp_send_timeout" || errorCode === "ETIMEDOUT") {
+  if (
+    error?.message === "smtp_send_timeout" ||
+    errorCode === "ETIMEDOUT" ||
+    errorCode === "ERESEND_TIMEOUT"
+  ) {
     return {
       statusCode: 504,
       body: {
@@ -187,14 +213,43 @@ function mapEmailSendError(error) {
     };
   }
 
+  if (errorCode === "ERESEND_AUTH" || responseCode === 401 || responseCode === 403) {
+    return {
+      statusCode: 502,
+      body: {
+        error: "email_auth_failed",
+        message: "Resend authentication failed. Check RESEND_API_KEY.",
+        providerCode: errorCode
+      }
+    };
+  }
+
+  if (errorCode === "ERESEND_RATE_LIMIT" || responseCode === 429) {
+    return {
+      statusCode: 429,
+      body: {
+        error: "email_rate_limited",
+        message: "Email provider rate limit reached. Please try again shortly.",
+        providerCode: errorCode
+      }
+    };
+  }
+
   if (
-    ["ESOCKET", "ECONNECTION", "ENOTFOUND", "ECONNREFUSED", "EHOSTUNREACH"].includes(errorCode)
+    [
+      "ESOCKET",
+      "ECONNECTION",
+      "ENOTFOUND",
+      "ECONNREFUSED",
+      "EHOSTUNREACH",
+      "ERESEND_NETWORK"
+    ].includes(errorCode)
   ) {
     return {
       statusCode: 502,
       body: {
         error: "email_connection_failed",
-        message: "Could not connect to the email provider. Check SMTP host/port or network egress rules.",
+        message: "Could not connect to the email provider. Check provider config and network egress rules.",
         providerCode: errorCode
       }
     };
@@ -243,10 +298,84 @@ function readJsonBody(req, maxBytes = 1_000_000) {
 }
 
 async function sendFeatureRequestEmail({ name, email, subject, message }) {
+  const resend = getResendConfig();
+  if (resend.enabled) {
+    const resendClient = new Resend(resend.apiKey);
+    const lines = [
+      "New feature request for How Far From Potty",
+      "",
+      `Name: ${name || "Not provided"}`,
+      `Email: ${email || "Not provided"}`,
+      "",
+      "Request:",
+      message
+    ];
+
+    let timeoutHandle;
+    try {
+      const response = await Promise.race([
+        resendClient.emails.send({
+          from: resend.from,
+          to: [FEATURE_REQUEST_TO],
+          replyTo: email || undefined,
+          subject: `[Feature Request] ${subject}`,
+          text: lines.join("\n")
+        }),
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            const timeoutError = new Error("resend_timeout");
+            timeoutError.code = "ERESEND_TIMEOUT";
+            reject(timeoutError);
+          }, RESEND_SEND_TIMEOUT_MS);
+        })
+      ]);
+
+      if (response?.error) {
+        const error = new Error("resend_request_failed");
+        error.responseCode = Number(response.error.statusCode) || null;
+        if (error.responseCode === 401 || error.responseCode === 403) {
+          error.code = "ERESEND_AUTH";
+        } else if (error.responseCode === 429) {
+          error.code = "ERESEND_RATE_LIMIT";
+        } else {
+          error.code = "ERESEND_REQUEST_FAILED";
+        }
+        throw error;
+      }
+
+      return;
+    } catch (error) {
+      const responseCode = Number(error?.statusCode || error?.responseCode || 0) || null;
+      if (responseCode) {
+        error.responseCode = responseCode;
+      }
+
+      if ((error?.responseCode === 401 || error?.responseCode === 403) && !error?.code) {
+        error.code = "ERESEND_AUTH";
+      } else if (error?.responseCode === 429 && !error?.code) {
+        error.code = "ERESEND_RATE_LIMIT";
+      }
+
+      if (!error?.code) {
+        const networkError = new Error(error?.message || "resend_network_error");
+        networkError.code = "ERESEND_NETWORK";
+        throw networkError;
+      }
+
+      throw error;
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
   const smtp = getSmtpConfig();
   if (!smtp.enabled) {
-    const error = new Error("smtp_not_configured");
-    error.missing = smtp.missing;
+    const missing = [...resend.missing, ...smtp.missing];
+    const uniqueMissing = [...new Set(missing)];
+    const error = new Error("email_not_configured");
+    error.missing = uniqueMissing;
     throw error;
   }
 
@@ -520,12 +649,12 @@ const server = createServer(async (req, res) => {
         });
         return;
       } catch (error) {
-        if (error.message === "smtp_not_configured") {
+        if (error.message === "smtp_not_configured" || error.message === "email_not_configured") {
           console.error(
-            `[feature-request] SMTP is not configured. Missing: ${(error.missing || []).join(", ")}`
+            `[feature-request] Email provider is not configured. Missing: ${(error.missing || []).join(", ")}`
           );
           sendJson(res, 503, {
-            error: "smtp_not_configured",
+            error: "email_not_configured",
             message: "Feature request delivery is not configured on this server.",
             missing: Array.isArray(error.missing) ? error.missing : []
           });
